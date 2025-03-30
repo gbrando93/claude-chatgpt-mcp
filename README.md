@@ -7,6 +7,7 @@ This is a Model Context Protocol (MCP) tool that allows Claude to interact with 
 - Ask ChatGPT questions directly from Claude
 - View ChatGPT conversation history
 - Continue existing ChatGPT conversations
+- Configurable rate limiting to prevent ChatGPT throttling
 
 ## Installation
 
@@ -22,7 +23,7 @@ This is a Model Context Protocol (MCP) tool that allows Claude to interact with 
 1. Clone this repository:
 
 ```bash
-git clone https://github.com/syedazharmbnr1/claude-chatgpt-mcp.git
+git clone https://github.com/gbrando93/claude-chatgpt-mcp.git
 cd claude-chatgpt-mcp
 ```
 
@@ -65,6 +66,28 @@ Once installed, you can use the ChatGPT tool directly from Claude by asking ques
 - "Can you ask ChatGPT what the capital of France is?"
 - "Show me my recent ChatGPT conversations"
 - "Ask ChatGPT to explain quantum computing"
+
+### Rate Limiting
+
+To prevent running into ChatGPT's rate limits, this tool enforces a default 2-minute (120 seconds) delay between requests. You can customize this delay when making requests:
+
+```
+// Example of using a custom delay (90 seconds)
+{
+  "operation": "ask",
+  "prompt": "What is the meaning of life?",
+  "delay_ms": 90000
+}
+```
+
+The available parameters for ChatGPT requests are:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| operation | string | Required. Either "ask" or "get_conversations" |
+| prompt | string | Required for "ask" operation. The prompt to send to ChatGPT |
+| conversation_id | string | Optional. ID of a specific conversation to continue |
+| delay_ms | number | Optional. Custom delay in milliseconds before sending request (defaults to 120000) |
 
 ## Troubleshooting
 
