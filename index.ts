@@ -108,7 +108,7 @@ async function askChatGPT(prompt: string, conversationId?: string, customDelay?:
   lastRequestTime = Date.now();
   
   try {
-    // This is a simplistic approach - actual implementation may need to be more sophisticated
+    // This is a more sophisticated approach with polling for response completion
     const result = await runAppleScript(`
       tell application "ChatGPT"
         activate
@@ -124,20 +124,94 @@ async function askChatGPT(prompt: string, conversationId?: string, customDelay?:
             end try
             ` : ''}
             
-            -- Type in the prompt
-            keystroke "${prompt.replace(/"/g, '\\"')}"
+            -- Use clipboard to paste the prompt (more reliable than keystroke)
+            set thePrompt to "${prompt.replace(/"/g, '\\"').replace(/\n/g, '\\n')}"
+            
+            -- Save original clipboard content
+            set originalClipboard to the clipboard
+            
+            -- Set the clipboard to our prompt
+            set the clipboard to thePrompt
+            
+            -- Make sure we're focused on the input field
+            -- First click in the chat input area to ensure focus
+            click text field 1 of group 1 of group 1 of window 1
             delay 0.5
+            
+            -- Paste the prompt
+            keystroke "v" using command down
+            
+            -- Calculate appropriate delay based on prompt length (min 1 second)
+            set promptLength to length of thePrompt
+            set pasteDelay to promptLength / 1000 + 1
+            delay pasteDelay
+            
+            -- Send the message
             keystroke return
-            delay 5  -- Wait for response, adjust as needed
             
-            -- Try to get the response (this is approximate and may need adjustments)
+            -- Restore original clipboard content
+            set the clipboard to originalClipboard
+            
+            -- Poll until response is complete (maximum 2 minutes)
+            set maxWaitTime to 120 -- Maximum wait time in seconds
+            set pollInterval to 3 -- Check every 3 seconds
+            set waitTime to 0
+            set previousResponseLength to 0
+            set stableResponseCount to 0
             set responseText to ""
-            try
-              set responseText to value of text area 2 of group 1 of group 1 of window 1
-            on error
-              set responseText to "Could not retrieve the response from ChatGPT."
-            end try
             
+            -- Wait a moment before starting to check for responses
+            delay 2
+            
+            repeat until waitTime > maxWaitTime
+              -- Get current response text
+              try
+                set currentResponseText to value of text area 2 of group 1 of group 1 of window 1
+              on error
+                set currentResponseText to ""
+              end try
+              
+              -- Calculate current length
+              set currentLength to length of currentResponseText
+              
+              -- Log for debugging
+              log "Previous length: " & previousResponseLength & ", Current length: " & currentLength
+              
+              -- Check if the response has stabilized (not growing anymore)
+              if currentLength > 0 and currentLength = previousResponseLength then
+                -- Response length hasn't changed
+                set stableResponseCount to stableResponseCount + 1
+                
+                -- If stable for 3 consecutive checks (9 seconds), consider it complete
+                if stableResponseCount >= 3 then
+                  set responseText to currentResponseText
+                  exit repeat
+                end if
+              else
+                -- Reset stability counter if length changed
+                set stableResponseCount to 0
+              end if
+              
+              -- Update previous length for next comparison
+              set previousResponseLength to currentLength
+              
+              -- Wait for next check
+              delay pollInterval
+              set waitTime to waitTime + pollInterval
+            end repeat
+            
+            -- If we timed out but have some response, use what we have
+            if waitTime > maxWaitTime and previousResponseLength > 0 then
+              try
+                set responseText to value of text area 2 of group 1 of group 1 of window 1
+              on error
+                set responseText to "Could not retrieve the complete response from ChatGPT (timed out)."
+              end try
+            else if waitTime > maxWaitTime then
+              set responseText to "ChatGPT took too long to respond. Please try again with a simpler question."
+            end if
+            
+            -- Return the final response
             return responseText
           end tell
         end tell
