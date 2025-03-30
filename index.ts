@@ -8,6 +8,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { runAppleScript } from 'run-applescript';
 import { run } from '@jxa/run';
+import { sleep } from "bun";
 
 // Define the ChatGPT tool
 const CHATGPT_TOOL: Tool = {
@@ -28,6 +29,10 @@ const CHATGPT_TOOL: Tool = {
       conversation_id: {
         type: "string",
         description: "Optional conversation ID to continue a specific conversation"
+      },
+      delay_ms: {
+        type: "number",
+        description: "Optional delay in milliseconds before sending the request (defaults to 120000 - 2 minutes)"
       }
     },
     required: ["operation"]
@@ -45,6 +50,23 @@ const server = new Server(
     },
   }
 );
+
+// Add rate limiting tracking
+let lastRequestTime = 0;
+const RATE_LIMIT_DELAY = 120000; // 120 seconds (2 minutes) in milliseconds
+
+// Function to wait for the rate limit
+async function waitForRateLimit(customDelay?: number): Promise<void> {
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  const delayToUse = customDelay || RATE_LIMIT_DELAY;
+  
+  if (timeSinceLastRequest < delayToUse) {
+    const waitTime = delayToUse - timeSinceLastRequest;
+    console.error(`Waiting ${Math.ceil(waitTime / 1000)} seconds before sending request to ChatGPT...`);
+    await sleep(waitTime);
+  }
+}
 
 // Check if ChatGPT app is installed and running
 async function checkChatGPTAccess(): Promise<boolean> {
@@ -78,8 +100,12 @@ async function checkChatGPTAccess(): Promise<boolean> {
 }
 
 // Function to send a prompt to ChatGPT
-async function askChatGPT(prompt: string, conversationId?: string): Promise<string> {
+async function askChatGPT(prompt: string, conversationId?: string, customDelay?: number): Promise<string> {
   await checkChatGPTAccess();
+  
+  // Wait for rate limit with optional custom delay
+  await waitForRateLimit(customDelay);
+  lastRequestTime = Date.now();
   
   try {
     // This is a simplistic approach - actual implementation may need to be more sophisticated
@@ -171,10 +197,11 @@ function isChatGPTArgs(args: unknown): args is {
   operation: "ask" | "get_conversations";
   prompt?: string;
   conversation_id?: string;
+  delay_ms?: number;
 } {
   if (typeof args !== "object" || args === null) return false;
   
-  const { operation, prompt, conversation_id } = args as any;
+  const { operation, prompt, conversation_id, delay_ms } = args as any;
   
   if (!operation || !["ask", "get_conversations"].includes(operation)) {
     return false;
@@ -186,6 +213,7 @@ function isChatGPTArgs(args: unknown): args is {
   // Validate field types if present
   if (prompt && typeof prompt !== "string") return false;
   if (conversation_id && typeof conversation_id !== "string") return false;
+  if (delay_ms !== undefined && typeof delay_ms !== "number") return false;
   
   return true;
 }
@@ -213,7 +241,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             throw new Error("Prompt is required for ask operation");
           }
           
-          const response = await askChatGPT(args.prompt, args.conversation_id);
+          const response = await askChatGPT(
+            args.prompt, 
+            args.conversation_id, 
+            args.delay_ms
+          );
           
           return {
             content: [{ 
